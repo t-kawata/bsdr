@@ -4,7 +4,8 @@ use bsdr::mode::am;
 use bsdr::mode::rt;
 use std::env;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
         eprintln!("Missing 1st arg as mode to run.");
@@ -34,7 +35,7 @@ fn main() {
 
     match mode {
         Mode::RT => {
-            rt::main_of_rt(mode_args);
+            rt::main_of_rt(mode_args).await;
         }
         Mode::AM => {
             am::main_of_am(mode_args);

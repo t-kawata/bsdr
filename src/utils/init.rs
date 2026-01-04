@@ -44,14 +44,24 @@ where
         _ => LevelFilter::Debug,
     };
 
+    const TARGET_WIDTH: usize = 25;
+
     let mut log_dispatch_base = Dispatch::new().level(level).format(|out, message, record| {
         let jst = Utc::now().with_timezone(&FixedOffset::east_opt(9 * 3600).unwrap());
+        let target = record.target().replace("::", ".");
+        let display_target = if target.len() > TARGET_WIDTH {
+            &target[target.len() - TARGET_WIDTH..]
+        } else {
+            &target
+        };
+
         out.finish(format_args!(
-            "{} [{}] <{}> {}",
-            jst.format("%Y-%m-%d_%H:%M:%S"),
-            record.target(),
+            "{} {: <width$} [{: <5}] {}", // width$ で引数の値を参照
+            jst.format("%y-%m-%d_%H:%M:%S"),
+            display_target,
             record.level(),
             message,
+            width = TARGET_WIDTH
         ))
     });
 

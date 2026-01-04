@@ -1,5 +1,7 @@
 use crate::utils::env::get_env_or;
 use crate::utils::init::{CommonFlgs, HasCommonFlgs, init};
+use crate::utils::s3client;
+use crate::mode::rt::req_map;
 use clap::Parser;
 use serde::Serialize;
 use std::iter::{Chain, Cloned, Once};
@@ -21,7 +23,7 @@ impl HasCommonFlgs for RTFlgs {
     }
 }
 
-pub fn main_of_rt(args: Chain<Once<String>, Cloned<Iter<'_, String>>>) {
+pub async fn main_of_rt(args: Chain<Once<String>, Cloned<Iter<'_, String>>>) {
     // ==============================
     // 初期化
     // ==============================
@@ -39,6 +41,44 @@ pub fn main_of_rt(args: Chain<Once<String>, Cloned<Iter<'_, String>>>) {
     let flgs_json = serde_json::to_string(&flgs).expect("Failed to serialize flgs to json.");
     log::debug!("RT-FLAGS: {}", flgs_json);
 
-    let test = get_env_or("TEST", false);
-    log::debug!("TEST: {}", test);
+    // ==============================
+    // 環境変数収集
+    // ==============================
+    let rt_port = get_env_or("RT_PORT", 8888);
+    let cors_on_rt = get_env_or("CORS_ON_RT", false);
+    let s3_use_local = get_env_or("S3_USE_LOCAL", false);
+    let s3_local_dir = get_env_or("S3_LOCAL_DIR", "dummy".to_string());
+    let s3_down_dir = get_env_or("S3_DOWN_DIR", "dummy".to_string());
+    let s3_access_key = get_env_or("S3_ACCESS_KEY", "dummy".to_string());
+    let s3_secret_access_key = get_env_or("S3_SECRET_ACCESS_KEY", "dummy".to_string());
+    let s3_region = get_env_or("S3_REGION", "dummy".to_string());
+    let s3_bucket = get_env_or("S3_BUCKET", "dummy".to_string());
+    let s3_min_free_disk = get_env_or("S3_MIN_FREE_DISK", 0);
+    log::debug!("RT_PORT: {}", rt_port);
+    log::debug!("CORS_ON_RT: {}", cors_on_rt);
+    log::debug!("S3_USE_LOCAL: {}", s3_use_local);
+    log::debug!("S3_LOCAL_DIR: {}", s3_local_dir);
+    log::debug!("S3_DOWN_DIR: {}", s3_down_dir);
+    log::debug!("S3_ACCESS_KEY: {}", s3_access_key);
+    log::debug!("S3_SECRET_ACCESS_KEY: {}", s3_secret_access_key);
+    log::debug!("S3_REGION: {}", s3_region);
+    log::debug!("S3_BUCKET: {}", s3_bucket);
+    log::debug!("S3_MIN_FREE_DISK: {}", s3_min_free_disk);
+
+    // ==============================
+    // s3clientの初期化
+    // ==============================
+    let s3c = s3client::S3Client::new(&s3_access_key, &s3_secret_access_key, &s3_region, &s3_bucket, &s3_local_dir, &s3_down_dir, s3_use_local).await;
+    match s3c {
+        Ok(_) => { log::debug!("S3Client created successfully."); }
+        Err(e) => { eprintln!("Failed to create s3client: {}", e); std::process::exit(1); }
+    }
+
+    // ==============================
+    // Axum リクエストマッピングと起動
+    // ==============================
+    let router = req_map::map_request(cors_on_rt);
+    log::debug!("Starting RT server on port {}...", rt_port);
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{rt_port}")).await.expect("Failed to bind listener.");
+    axum::serve(listener, router).await.expect("Failed to serve.");
 }
