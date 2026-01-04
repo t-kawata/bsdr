@@ -1,3 +1,4 @@
+use crate::utils::db::get_db;
 use crate::utils::env::get_env_or;
 use crate::utils::init::{CommonFlgs, HasCommonFlgs, init};
 use crate::utils::s3client;
@@ -27,7 +28,7 @@ pub async fn main_of_rt(args: Chain<Once<String>, Cloned<Iter<'_, String>>>) {
     // ==============================
     // 初期化
     // ==============================
-    let (flgs, _env) = init::<RTFlgs>(args).expect("Failed to init rt mode.");
+    let (flgs, env) = init::<RTFlgs>(args).expect("Failed to init rt mode.");
 
     // ==============================
     // .envファイルの読み込み
@@ -75,9 +76,18 @@ pub async fn main_of_rt(args: Chain<Once<String>, Cloned<Iter<'_, String>>>) {
     }
 
     // ==============================
+    // DB接続
+    // ==============================
+    let db_result = get_db(&env).await;
+    let db = match db_result {
+        Ok(db) => { log::debug!("DB created successfully."); db }
+        Err(e) => { eprintln!("Failed to create DB: {}", e); std::process::exit(1); }
+    };
+
+    // ==============================
     // Axum リクエストマッピングと起動
     // ==============================
-    let router = req_map::map_request(cors_on_rt);
+    let router = req_map::map_request(cors_on_rt, db);
     log::debug!("Starting RT server on port {}...", rt_port);
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{rt_port}")).await.expect("Failed to bind listener.");
     axum::serve(listener, router).await.expect("Failed to serve.");

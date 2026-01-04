@@ -1,4 +1,5 @@
 pub const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
+pub const DB_NAME: &str = "bsdr";
 
 #[derive(Debug, Clone)]
 pub struct DbInfo {

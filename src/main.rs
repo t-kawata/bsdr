@@ -38,7 +38,7 @@ async fn main() {
             rt::main_of_rt(mode_args).await;
         }
         Mode::AM => {
-            am::main_of_am(mode_args);
+            am::main_of_am(mode_args).await;
         }
     }
 }

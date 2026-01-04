@@ -21,3 +21,8 @@ down-mysql:
 	
 conn-mysql:
 	mysql -h 127.0.0.1 -D bsdr -u asterisk -p
+
+gen-migration:
+	@if [ -z "${NAME}" ]; then echo "\033[1;31mError: NAME is empty.\033[0m"; exit 1; fi
+	mkdir -p ./src/migration && touch ./src/migration/mod.rs
+	sea-orm-cli migrate generate ${NAME} -d ./src/migration

@@ -56,7 +56,7 @@ where
         };
 
         out.finish(format_args!(
-            "{} {: <width$} [{: <5}] {}", // width$ で引数の値を参照
+            "{} {: <width$} [{}] {}", // width$ で引数の値を参照
             jst.format("%y-%m-%d_%H:%M:%S"),
             display_target,
             record.level(),

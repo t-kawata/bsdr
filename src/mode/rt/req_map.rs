@@ -1,5 +1,6 @@
-use axum::Router;
-use crate::{config::VERSION, utils::cors::cors_layer};
+use axum::{Router, Extension};
+use crate::{config::VERSION, utils::cors::cors_layer, utils::db::DbPools};
+use std::sync::Arc;
 use utoipa::{OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -53,14 +54,15 @@ fn app_routes() -> OpenApiRouter { OpenApiRouter::new()
 // ==============================
 // リクエストマッピング
 // ==============================
-pub fn map_request(cors: bool) -> Router {
+pub fn map_request(cors: bool, db: DbPools) -> Router {
     log::debug!("Mapping requests.");
     let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .nest("/v1", app_routes())
         .split_for_parts();
     let mut app = Router::new()
         .merge(router)
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api));
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api))
+        .layer(Extension(Arc::new(db)));
     if cors {
         app = app.layer(cors_layer());
     }

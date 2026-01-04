@@ -1,3 +1,9 @@
+use std::sync::Arc;
+
+use axum::Extension;
+
+use crate::utils::db::DbPools;
+
 
 const TAG: &str = "v1 Usr";
 
@@ -26,7 +32,9 @@ const SEARCH_DESC: &str = r#"
         (status = 200, description = "Success")
     )
 )]
-pub async fn search_usrs() -> &'static str {
+pub async fn search_usrs(
+    Extension(_db): Extension<Arc<DbPools>>,
+) -> &'static str {
     "Hello, World!"
 }
 
@@ -55,7 +63,9 @@ const GET_DESC: &str = r#"
         (status = 200, description = "Success")
     )
 )]
-pub async fn get_usr() -> &'static str {
+pub async fn get_usr(
+    Extension(_db): Extension<Arc<DbPools>>,
+) -> &'static str {
     "Hello, World!"
 }
 
@@ -84,7 +94,9 @@ const CREATE_DESC: &str = r#"
         (status = 200, description = "Success")
     )
 )]
-pub async fn create_usr() -> &'static str {
+pub async fn create_usr(
+    Extension(_db): Extension<Arc<DbPools>>,
+) -> &'static str {
     "Hello, World!"
 }
 
@@ -113,7 +125,9 @@ const UPDATE_DESC: &str = r#"
         (status = 200, description = "Success")
     )
 )]
-pub async fn update_usr() -> &'static str {
+pub async fn update_usr(
+    Extension(_db): Extension<Arc<DbPools>>,
+) -> &'static str {
     "Hello, World!"
 }
 
@@ -142,7 +156,9 @@ const DELETE_DESC: &str = r#"
         (status = 200, description = "Success")
     )
 )]
-pub async fn delete_usr() -> &'static str {
+pub async fn delete_usr(
+    Extension(_db): Extension<Arc<DbPools>>,
+) -> &'static str {
     "Hello, World!"
 }
 
