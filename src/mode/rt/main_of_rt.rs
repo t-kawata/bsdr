@@ -1,8 +1,10 @@
+use crate::config::settings::DEFAULT_SKEY;
 use crate::utils::db::get_db;
 use crate::utils::env::get_env_or;
 use crate::utils::init::{CommonFlgs, HasCommonFlgs, init};
 use crate::utils::s3client;
 use crate::mode::rt::req_map;
+
 use clap::Parser;
 use serde::Serialize;
 use std::iter::{Chain, Cloned, Once};
@@ -47,6 +49,7 @@ pub async fn main_of_rt(args: Chain<Once<String>, Cloned<Iter<'_, String>>>) {
     // ==============================
     let rt_port = get_env_or("RT_PORT", 8888);
     let cors_on_rt = get_env_or("CORS_ON_RT", false);
+    let rt_skey = get_env_or("RT_SKEY", DEFAULT_SKEY.to_string());
     let s3_use_local = get_env_or("S3_USE_LOCAL", false);
     let s3_local_dir = get_env_or("S3_LOCAL_DIR", "dummy".to_string());
     let s3_down_dir = get_env_or("S3_DOWN_DIR", "dummy".to_string());
@@ -57,6 +60,7 @@ pub async fn main_of_rt(args: Chain<Once<String>, Cloned<Iter<'_, String>>>) {
     let s3_min_free_disk = get_env_or("S3_MIN_FREE_DISK", 0);
     log::debug!("RT_PORT: {}", rt_port);
     log::debug!("CORS_ON_RT: {}", cors_on_rt);
+    log::debug!("RT_SKEY: {}", rt_skey);
     log::debug!("S3_USE_LOCAL: {}", s3_use_local);
     log::debug!("S3_LOCAL_DIR: {}", s3_local_dir);
     log::debug!("S3_DOWN_DIR: {}", s3_down_dir);
@@ -78,7 +82,7 @@ pub async fn main_of_rt(args: Chain<Once<String>, Cloned<Iter<'_, String>>>) {
     // ==============================
     // DB接続
     // ==============================
-    let db_result = get_db(&env).await;
+    let db_result = get_db(&env, &flgs.common.log_level).await;
     let db = match db_result {
         Ok(db) => { log::debug!("DB created successfully."); db }
         Err(e) => { eprintln!("Failed to create DB: {}", e); std::process::exit(1); }
@@ -87,7 +91,7 @@ pub async fn main_of_rt(args: Chain<Once<String>, Cloned<Iter<'_, String>>>) {
     // ==============================
     // Axum リクエストマッピングと起動
     // ==============================
-    let router = req_map::map_request(cors_on_rt, db);
+    let router = req_map::map_request(cors_on_rt, db, &rt_skey);
     log::debug!("Starting RT server on port {}...", rt_port);
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{rt_port}")).await.expect("Failed to bind listener.");
     axum::serve(listener, router).await.expect("Failed to serve.");

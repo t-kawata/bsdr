@@ -13,10 +13,10 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(pk_auto(Bd::Id))
                     .col(string_len(Bd::Hash, 60).not_null().default(""))
-                    .col(timestamp_with_time_zone(Bd::BgnAt).null())
-                    .col(timestamp_with_time_zone(Bd::EndAt).null())
-                    .col(timestamp_with_time_zone(Bd::CreatedAt).not_null().default(Expr::current_timestamp()))
-                    .col(timestamp_with_time_zone(Bd::UpdatedAt).not_null().default(Expr::current_timestamp()))
+                    .col(ColumnDef::new(Bd::BgnAt).date_time().not_null())
+                    .col(ColumnDef::new(Bd::EndAt).date_time().not_null())
+                    .col(ColumnDef::new(Bd::CreatedAt).date_time().not_null().default(Expr::current_timestamp()))
+                    .col(ColumnDef::new(Bd::UpdatedAt).date_time().not_null().default(Expr::current_timestamp()))
                     .to_owned(),
             )
             .await

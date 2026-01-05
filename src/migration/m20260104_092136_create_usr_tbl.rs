@@ -39,12 +39,12 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Usr::FlushFeeRate).decimal_len(5, 5).not_null().default(0.0)) // Pool から引かれる割合
                     // --------- VDR だけの項目 end
                     .col(boolean(Usr::IsStaff).not_null().default(false))
-                    .col(timestamp_with_time_zone(Usr::BgnAt).null())
-                    .col(timestamp_with_time_zone(Usr::EndAt).null())
+                    .col(ColumnDef::new(Usr::BgnAt).date_time().not_null())
+                    .col(ColumnDef::new(Usr::EndAt).date_time().not_null())
                     .col(unsigned(Usr::ApxID).null())
                     .col(unsigned(Usr::VdrID).null())
-                    .col(timestamp_with_time_zone(Usr::CreatedAt).not_null().default(Expr::current_timestamp()))
-                    .col(timestamp_with_time_zone(Usr::UpdatedAt).not_null().default(Expr::current_timestamp()))
+                    .col(ColumnDef::new(Usr::CreatedAt).date_time().not_null().default(Expr::current_timestamp()))
+                    .col(ColumnDef::new(Usr::UpdatedAt).date_time().not_null().default(Expr::current_timestamp()))
                     .to_owned(),
             )
             .await?;

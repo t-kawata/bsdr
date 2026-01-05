@@ -1,5 +1,7 @@
 use crate::config::settings::{Env, DbInfo, DB_NAME};
-use sea_orm::{Database, DatabaseConnection, ConnectOptions};
+use crate::utils::init::LogLevel;
+use sea_orm::{Database, DatabaseConnection, ConnectOptions, ActiveValue::{self, Set}};
+use chrono::NaiveDateTime;
 use std::time::Duration;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use futures::future::join_all;
@@ -45,15 +47,15 @@ impl DbPools {
     }
 }
 
-pub async fn get_db(env: &Env) -> anyhow::Result<DbPools> {
+pub async fn get_db(env: &Env, log_level: &LogLevel) -> anyhow::Result<DbPools> {
     // 1. RW接続（必須）
     let rw_url = format_url(&env.rw_db);
-    let rw = connect(rw_url).await.context("Failed to connect to RW database")?;
+    let rw = connect(rw_url, log_level).await.context("Failed to connect to RW database")?;
 
     // 2. RO接続（個別失敗を許容）
     let mut ro_futures = Vec::new();
     for ro_info in &env.ro_dbs {
-        ro_futures.push(connect(format_url(ro_info)));
+        ro_futures.push(connect(format_url(ro_info), log_level));
     }
 
     let mut ro = Vec::new();
@@ -87,12 +89,12 @@ pub async fn get_db(env: &Env) -> anyhow::Result<DbPools> {
 
 fn format_url(info: &DbInfo) -> String {
     format!(
-        "mysql://{}:{}@{}:{}/{}",
+        "mysql://{}:{}@{}:{}/{}?timezone=%2B09:00",
         info.username, info.password, info.host, info.port, DB_NAME
     )
 }
 
-async fn connect(url: String) -> Result<DatabaseConnection, sea_orm::DbErr> {
+async fn connect(url: String, log_level: &LogLevel) -> Result<DatabaseConnection, sea_orm::DbErr> {
     let mut opt = ConnectOptions::new(url);
     opt.max_connections(MAX_CONNECTIONS)
         .min_connections(MIN_CONNECTIONS)
@@ -101,8 +103,24 @@ async fn connect(url: String) -> Result<DatabaseConnection, sea_orm::DbErr> {
         .idle_timeout(Duration::from_secs(IDLE_TIMEOUT_SECS))
         .max_lifetime(Duration::from_secs(MAX_LIFETIME_SECS))
         .test_before_acquire(true) // 取得前に PING で生存確認を行う（論理的な Keep-Alive）
-        .sqlx_logging(true)
-        .sqlx_logging_level(log::LevelFilter::Debug);
+        .sqlx_logging(false);
+
+    // sqlx_logging(false) を設定することで、SQLx 側のプレースホルダー (?) 付きログを無効化します。
+    // SeaORM の debug-print feature による生SQL出力は、ロガーのレベルが Debug 以上の時に自動で行われます。
+    opt.sqlx_logging(false);
+
+    if log_level != &LogLevel::Debug && log_level != &LogLevel::Trace {
+        // Debug 未満の場合は、念のため sqlx のログレベルを Off にしておきます
+        opt.sqlx_logging_level(log::LevelFilter::Off);
+    }
 
     Database::connect(opt).await
+}
+
+/// YYYY-MM-DDThh:mm:ss 形式の文字列（JST想定）を 
+/// ActiveValue<NaiveDateTime> に変換する
+pub fn str_to_datetime(date_str: &str) -> anyhow::Result<ActiveValue<NaiveDateTime>> {
+    let format = "%Y-%m-%dT%H:%M:%S";
+    let naive = NaiveDateTime::parse_from_str(date_str, format).map_err(|e| anyhow::anyhow!("Failed to parse date string: {}", e))?;
+    Ok(Set(naive))
 }

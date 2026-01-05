@@ -1,18 +1,28 @@
 use crate::config::settings::{Env, get_env};
 use chrono::{FixedOffset, Utc};
-use clap::{Args, Parser};
+use clap::{Args, Parser, ValueEnum};
 use fern::Dispatch;
 use log::LevelFilter;
 use serde::Serialize;
 use std::iter::{Chain, Cloned, Once};
 use std::slice::Iter;
 
+#[derive(Debug, ValueEnum, Serialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
 #[derive(Debug, Args, Serialize, Clone)]
 pub struct CommonFlgs {
     #[arg(short = 'e', long = "env", default_value_t = String::from("local"), help = "Environment")]
     pub env: String,
-    #[arg(short = 'l', long = "log_level", default_value_t = String::from("debug"), help = "Log level")]
-    pub log_level: String,
+    #[arg(short = 'l', long = "log_level", default_value = "debug", help = "Log level")]
+    pub log_level: LogLevel,
     #[arg(short = 'o', long = "output", default_value_t = String::from("stdout"), help = "Destination of log output (stdout, /path/to/file).")]
     pub output: String,
 }
@@ -35,13 +45,12 @@ where
         return Err(format!("Invalid environment: {}", common.env).into());
     }
 
-    let level = match common.log_level.to_lowercase().as_str() {
-        "error" => LevelFilter::Error,
-        "warn" => LevelFilter::Warn,
-        "info" => LevelFilter::Info,
-        "debug" => LevelFilter::Debug,
-        "trace" => LevelFilter::Trace,
-        _ => LevelFilter::Debug,
+    let level = match common.log_level {
+        LogLevel::Error => LevelFilter::Error,
+        LogLevel::Warn => LevelFilter::Warn,
+        LogLevel::Info => LevelFilter::Info,
+        LogLevel::Debug => LevelFilter::Debug,
+        LogLevel::Trace => LevelFilter::Trace,
     };
 
     const TARGET_WIDTH: usize = 25;
@@ -55,12 +64,18 @@ where
             &target
         };
 
+        let mut message_content = message.to_string();
+        if target.starts_with("sea_orm.driver.") {
+            // Cyan (36)
+            message_content = format!("\x1b[36m{}\x1b[0m", message_content);
+        }
+
         out.finish(format_args!(
             "{} {: <width$} [{}] {}", // width$ で引数の値を参照
             jst.format("%y-%m-%d_%H:%M:%S"),
             display_target,
             record.level(),
-            message,
+            message_content,
             width = TARGET_WIDTH
         ))
     });

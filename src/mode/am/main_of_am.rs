@@ -34,7 +34,7 @@ pub async fn main_of_am(args: Chain<Once<String>, Cloned<Iter<'_, String>>>) {
     // ==============================
     // DB接続
     // ==============================
-    let db_result = get_db(&env).await;
+    let db_result = get_db(&env, &flgs.common.log_level).await;
     let db = match db_result {
         Ok(db) => { log::debug!("DB created successfully."); db }
         Err(e) => { eprintln!("Failed to create DB: {}", e); std::process::exit(1); }

@@ -1,6 +1,6 @@
 [package]
 name = "bsdr"
-version = "0.0.4"
+version = "0.0.5"
 edition = "2024"
 
 [dependencies]
@@ -26,5 +26,13 @@ utoipa-axum = "0.2.0"
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum"] }
 walkdir = "2.5.0"
 async-trait = "0.1.89"
-sea-orm = { version = "1.1.19", features = ["runtime-tokio-rustls", "sqlx-mysql"] }
+sea-orm = { version = "1.1.19", features = [
+    "debug-print",
+    "runtime-tokio-rustls",
+    "sqlx-mysql",
+] }
 sea-orm-migration = "1.1.19"
+bcrypt = "0.17.1"
+rust_decimal = "1.39.0"
+jsonwebtoken = { version = "10.2.0", features = ["rust_crypto"] }
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }

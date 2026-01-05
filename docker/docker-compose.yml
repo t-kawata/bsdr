@@ -2,7 +2,7 @@ services:
   mysql:
     image: mysql:9.5.0
     container_name: mysql9
-    platform: linux/amd64 # M1/M2 Macの場合
+    platform: linux/amd64
     ports:
       - "3306:3306"
     environment:
@@ -10,7 +10,10 @@ services:
       MYSQL_DATABASE: bsdr
       MYSQL_USER: asterisk
       MYSQL_PASSWORD: yu51043chie3
-      TZ: UTC
+      # TZをAsia/Tokyoに変更（JSTだと認識されないケースがあるため）
+      TZ: Asia/Tokyo
+    # コマンド引数でMySQL自体のデフォルトタイムゾーンを指定
+    command: mysqld --default-time-zone='+09:00'
     volumes:
       - bsdr_mysql_data:/var/lib/mysql
 
