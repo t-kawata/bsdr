@@ -1,6 +1,6 @@
 [package]
 name = "bsdr"
-version = "0.0.5"
+version = "0.0.6"
 edition = "2024"
 
 [dependencies]
@@ -36,3 +36,4 @@ bcrypt = "0.17.1"
 rust_decimal = "1.39.0"
 jsonwebtoken = { version = "10.2.0", features = ["rust_crypto"] }
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+garde = { version = "0.22.1", features = ["derive", "full"] }

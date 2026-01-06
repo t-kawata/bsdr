@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use axum::{Extension, Json, extract::{Path, Query}, http::{HeaderMap, StatusCode}, response::IntoResponse};
 use crate::{
-    mode::rt::{rtreq::usrs_req::AuthUsrReq, rtres::{common_res::ApiError, usrs_res::AuthUsrRes}, rtutils::db_for_rt::DbPoolsExt},
-    utils::{db::DbPools, jwt::{self, JwtConfig}}
+    mode::rt::{rtreq::usrs_req::AuthUsrReq, rtres::{errs_res::ApiError, usrs_res::AuthUsrRes}, rterr::rterr, rtutils::db_for_rt::DbPoolsExt},
+    utils::{db::DbPools, jwt::{self, JwtConfig, JwtUsr, JwtIDs, JwtRole}}
 };
 
 const TAG: &str = "v1 Usr";
@@ -65,29 +65,30 @@ pub async fn auth_usr(
     let conn = db.get_ro_for_rt()?;
     let x_bd = headers.get("X-BD").and_then(|h| h.to_str().ok()).unwrap_or("");
     let has_bd = !x_bd.is_empty();
+    let expire = req.expire.unwrap_or(24);
     if has_bd { // For BD
-        let token = jwt::auth_bd(conn, x_bd, &jwt_config.skey, req.expire)
+        let token = jwt::auth_bd(conn, x_bd, &jwt_config.skey, expire)
             .await
-            .map_err(|e| ApiError::new(StatusCode::UNAUTHORIZED, e.to_string()))?;
+            .map_err(|e| ApiError::new_system(StatusCode::UNAUTHORIZED, rterr::ERR_AUTH, e.to_string()))?;
         return Ok(Json(AuthUsrRes { token }))
     } else { // 通常のユーザー認証
-        if jwt::is_apx(&apx_id, &vdr_id) { // For APX
-            let token = jwt::auth_apx(conn, req.email.clone(), req.password.clone(), &jwt_config.skey, req.expire)
+        if jwt::is_apx(&apx_id, &vdr_id, &1) { // For APX (uid is dummy > 0)
+            let token = jwt::auth_apx(conn, req.email.clone(), req.password.clone(), &jwt_config.skey, expire)
                 .await
-                .map_err(|e| ApiError::new(StatusCode::UNAUTHORIZED, e.to_string()))?;
+                .map_err(|e| ApiError::new_system(StatusCode::UNAUTHORIZED, rterr::ERR_AUTH, e.to_string()))?;
             return Ok(Json(AuthUsrRes { token }));
-        } else if jwt::is_vdr(&apx_id, &vdr_id) { // For VDR
-            let token = jwt::auth_vdr(conn, apx_id, req.email.clone(), req.password.clone(), &jwt_config.skey, req.expire)
+        } else if jwt::is_vdr(&apx_id, &vdr_id, &1) { // For VDR (uid is dummy > 0)
+            let token = jwt::auth_vdr(conn, apx_id, req.email.clone(), req.password.clone(), &jwt_config.skey, expire)
                 .await
-                .map_err(|e| ApiError::new(StatusCode::UNAUTHORIZED, e.to_string()))?;
+                .map_err(|e| ApiError::new_system(StatusCode::UNAUTHORIZED, rterr::ERR_AUTH, e.to_string()))?;
             return Ok(Json(AuthUsrRes { token }));
-        } else if jwt::is_usr(&apx_id, &vdr_id) { // For USR
-            let token = jwt::auth_usr(conn, apx_id, vdr_id, req.email.clone(), req.password.clone(), &jwt_config.skey, req.expire)
+        } else if jwt::is_usr(&apx_id, &vdr_id, &1) { // For USR (uid is dummy > 0)
+            let token = jwt::auth_usr(conn, apx_id, vdr_id, req.email.clone(), req.password.clone(), &jwt_config.skey, expire)
                 .await
-                .map_err(|e| ApiError::new(StatusCode::UNAUTHORIZED, e.to_string()))?;
+                .map_err(|e| ApiError::new_system(StatusCode::UNAUTHORIZED, rterr::ERR_AUTH, e.to_string()))?;
             return Ok(Json(AuthUsrRes { token }));
         } else {
-            return Err(ApiError::new(StatusCode::UNAUTHORIZED, "Invalid APX ID or VDR ID."));
+            return Err(ApiError::new_system(StatusCode::UNAUTHORIZED, rterr::ERR_INVALID_REQUEST, "Invalid APX ID or VDR ID."));
         }
     }
 }
@@ -97,14 +98,20 @@ pub async fn auth_usr(
 // ============================================================
 const SEARCH_DESC: &str = r#"
 ### ⚫︎ 概要
-- ユーザーを検索する。
-- ユーザーを検索する。
-- ユーザーを検索する。
+- VD は全てのユーザを検索できる
+- APX は配下の VDR 以下の全てのユーザを検索できる
+- VDR は、配下の全てのユーザを検索できる
+- USR は使用できない
 
 ### ⚫︎ Request
 | KEY | TYPE | VALIDATION | DESCRIPTION |
 | --- | --- | --- | --- |
-| `name` | string | required | ユーザー名 |
+| `name` | string | max=50 | ユーザー名 |
+| `email` | string | email, half, max=50 | メールアドレス |
+| `bgn_at` | string | required, datetime | 開始日時 |
+| `end_at` | string | required, datetime | 終了日時 |
+| `limit` | number | gte=1, lte=25 | 取得数 |
+| `offset` | number | gte=0 | オフセット |
 "#;
 #[utoipa::path(
     tag = TAG,
@@ -118,8 +125,11 @@ const SEARCH_DESC: &str = r#"
     )
 )]
 pub async fn search_usrs(
+    ju: JwtUsr,
+    _ids: JwtIDs,
     Extension(_db): Extension<Arc<DbPools>>,
 ) -> Result<impl IntoResponse, ApiError> {
+    ju.allow_roles(&[JwtRole::BD, JwtRole::APX, JwtRole::VDR])?;
     Ok("Hello, World!")
 }
 
@@ -128,20 +138,21 @@ pub async fn search_usrs(
 // ============================================================
 const GET_DESC: &str = r#"
 ### ⚫︎ 概要
-- ユーザー情報を1件取得する。
-- ユーザー情報を1件取得する。
-- ユーザー情報を1件取得する。
+- VD は全てのユーザを取得できる
+- APX は配下の VDR 以下の全てのユーザを取得できる
+- VDR は、配下の全てのユーザを取得できる
+- USR は使用できない
 
 ### ⚫︎ Request
 | KEY | TYPE | VALIDATION | DESCRIPTION |
 | --- | --- | --- | --- |
-| `id` | string | required | ユーザーID |
+| `usr_id` | number | required, gte=1 | ユーザーID |
 "#;
 #[utoipa::path(
     tag = TAG,
     get,
     security(("api_jwt_token" = [])),
-    path = "/usrs/{id}",
+    path = "/usrs/{usr_id}",
     summary = "ユーザー情報を1件取得する。",
     description = GET_DESC,
     responses(
@@ -149,8 +160,11 @@ const GET_DESC: &str = r#"
     )
 )]
 pub async fn get_usr(
+    ju: JwtUsr,
+    _ids: JwtIDs,
     Extension(_db): Extension<Arc<DbPools>>,
 ) -> Result<impl IntoResponse, ApiError> {
+    ju.allow_roles(&[JwtRole::APX, JwtRole::VDR, JwtRole::USR])?;
     Ok("Hello, World!")
 }
 
@@ -159,14 +173,41 @@ pub async fn get_usr(
 // ============================================================ 
 const CREATE_DESC: &str = r#"
 ### ⚫︎ 概要
-- ユーザーを新規作成する。
-- ユーザーを新規作成する。
-- ユーザーを新規作成する。
+- BD で取得した token では APX のみを作成できる
+- APX で取得した token では VDR のみを作成できる
+- VDR で取得した token では USR のみを作成できる
+- USR は USR を作れない
+
+### パラメータについて
+- type: 1: 法人, 2: 個人 (VDR作成時は無視される)
+- base_point: VDRのみ必須 (バッジ授与時に授与者である個人に付与される基本ポイント数)
+- belong_rate: VDRのみ必須 (所属によるポイント割増率)
+- max_works: VDRのみ必須 (VDR内の個人が就労できる最大数)
+- flush_fee_rate: VDRのみ必須 (現金プールを現金分配実行する時に、事務コストを賄うために Pool から引かれる割合)
+- flush_days: 法人のみ必須 (現金プールを現金分配実行するためのサイクルとなる日数)
+- rate: 法人のみ必須 (法人が、自分に所属するユーザーに対して付与する割増ポイント率)
+- VDR作成時以外にVDR用項目を送信するとエラーとなる
+- 法人作成時以外に法人用項目を送信するとエラーとなる
+
+### name について
+- type=2 (個人) の場合、姓名の間にスペース（半角・全角問わず）が必須
+- 全角スペースは半角スペースに変換され、連続するスペースは1つにまとめられる
 
 ### ⚫︎ Request
 | KEY | TYPE | VALIDATION | DESCRIPTION |
 | --- | --- | --- | --- |
-| `name` | string | required | ユーザー名 |
+| `name` | string | required, max=50 | ユーザー名 |
+| `email` | string | required, email, half, max=50 | メールアドレス |
+| `password` | string | required, password | パスワード |
+| `bgn_at` | string | required, datetime | 開始日時 |
+| `end_at` | string | required, datetime | 終了日時 |
+| `type` | number | omitempty, oneof=1 2 | 1: 法人, 2: 個人 |
+| `base_point` | number | gte=0 | 基本ポイント数 |
+| `belong_rate` | number | gte=0 | 所属割増率 |
+| `max_works` | number | gte=0 | 最大就労数 |
+| `flush_days` | number | gte=0 | 現金分配サイクル日数 |
+| `rate` | number | gte=0 | 割増ポイント率 |
+| `flush_fee_rate` | number | gte=0 | 事務コスト分配率 |
 "#;
 #[utoipa::path(
     tag = TAG,
@@ -180,8 +221,11 @@ const CREATE_DESC: &str = r#"
     )
 )]
 pub async fn create_usr(
+    ju: JwtUsr,
+    _ids: JwtIDs,
     Extension(_db): Extension<Arc<DbPools>>,
 ) -> Result<impl IntoResponse, ApiError> {
+    ju.allow_roles(&[JwtRole::BD, JwtRole::APX, JwtRole::VDR])?;
     Ok("Hello, World!")
 }
 
@@ -190,20 +234,48 @@ pub async fn create_usr(
 // ============================================================ 
 const UPDATE_DESC: &str = r#"
 ### ⚫︎ 概要
-- ユーザー情報を更新する。
-- ユーザー情報を更新する。
-- ユーザー情報を更新する。
+- BD は安全の為、更新権限を持たない
+- APX は配下の VDR 以下の全てのユーザを更新できる
+- VDR は、配下の全てのユーザを更新できる
+- USR は使用できない
+
+### パラメータについて
+- type: 1: 法人, 2: 個人 (VDR作成時は無視される)
+- base_point: VDRのみ必須 (バッジ授与時に授与者である個人に付与される基本ポイント数)
+- belong_rate: VDRのみ必須 (所属によるポイント割増率)
+- max_works: VDRのみ必須 (VDR内の個人が就労できる最大数)
+- flush_fee_rate: VDRのみ必須 (現金プールを現金分配実行する時に、事務コストを賄うために Pool から引かれる割合)
+- flush_days: 法人のみ必須 (現金プールを現金分配実行するためのサイクルとなる日数)
+- rate: 法人のみ必須 (法人が、自分に所属するユーザーに対して付与する割増ポイント率)
+- VDR作成時以外にVDR用項目を送信するとエラーとなる
+- 法人作成時以外に法人用項目を送信するとエラーとなる
+
+### name について
+- type=2 (個人) の場合、姓名の間にスペース（半角・全角問わず）が必須
+- 全角スペースは半角スペースに変換され、連続するスペースは1つにまとめられる
 
 ### ⚫︎ Request
 | KEY | TYPE | VALIDATION | DESCRIPTION |
 | --- | --- | --- | --- |
-| `id` | string | required | ユーザーID |
+| `usr_id` | number | required, gte=1 | ユーザーID |
+| `name` | string | max=50 | ユーザー名 |
+| `email` | string | email, half, max=50 | メールアドレス |
+| `password` | string | password | パスワード |
+| `bgn_at` | string | datetime | 開始日時 |
+| `end_at` | string | datetime | 終了日時 |
+| `type` | number | oneof=1 2 | 1: 法人, 2: 個人 |
+| `base_point` | number | gte=0 | 基本ポイント数 |
+| `belong_rate` | number | gte=0 | 所属割増率 |
+| `max_works` | number | gte=0 | 最大就労数 |
+| `flush_days` | number | gte=0 | 現金分配サイクル日数 |
+| `rate` | number | gte=0 | 割増ポイント率 |
+| `flush_fee_rate` | number | gte=0 | 事務コスト分配率 |
 "#;
 #[utoipa::path(
     tag = TAG,
     patch,
     security(("api_jwt_token" = [])),
-    path = "/usrs/{id}",
+    path = "/usrs/{usr_id}",
     summary = "ユーザー情報を更新する。",
     description = UPDATE_DESC,
     responses(
@@ -211,8 +283,11 @@ const UPDATE_DESC: &str = r#"
     )
 )]
 pub async fn update_usr(
+    ju: JwtUsr,
+    _ids: JwtIDs,
     Extension(_db): Extension<Arc<DbPools>>,
 ) -> Result<impl IntoResponse, ApiError> {
+    ju.allow_roles(&[JwtRole::APX, JwtRole::VDR])?;
     Ok("Hello, World!")
 }
 
@@ -221,20 +296,21 @@ pub async fn update_usr(
 // ============================================================ 
 const DELETE_DESC: &str = r#"
 ### ⚫︎ 概要
-- ユーザーを削除する。
-- ユーザーを削除する。
-- ユーザーを削除する。
+- BD は安全の為、削除権限を持たない
+- APX は配下の VDR 以下の全てのユーザを削除できる
+- VDR は、配下の全てのユーザを削除できる
+- USR は使用できない
 
 ### ⚫︎ Request
 | KEY | TYPE | VALIDATION | DESCRIPTION |
 | --- | --- | --- | --- |
-| `id` | string | required | ユーザーID |
+| `usr_id` | number | required, gte=1 | ユーザーID |
 "#;
 #[utoipa::path(
     tag = TAG,
     delete,
     security(("api_jwt_token" = [])),
-    path = "/usrs/{id}",
+    path = "/usrs/{usr_id}",
     summary = "ユーザーを削除する。",
     description = DELETE_DESC,
     responses(
@@ -242,8 +318,11 @@ const DELETE_DESC: &str = r#"
     )
 )]
 pub async fn delete_usr(
+    ju: JwtUsr,
+    _ids: JwtIDs,
     Extension(_db): Extension<Arc<DbPools>>,
 ) -> Result<impl IntoResponse, ApiError> {
+    ju.allow_roles(&[JwtRole::APX, JwtRole::VDR])?;
     Ok("Hello, World!")
 }
 

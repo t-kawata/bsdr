@@ -9,7 +9,10 @@ use crate::utils::crypto::get_hash_with_cost;
 use crate::entities::bds;
 use crate::mode::rt::rtutils::db_for_rt::DbPoolsExt;
 use crate::mode::rt::rtreq::bds_req::{CreateBdHashReq, CheckBdHashReq};
-use crate::mode::rt::rtres::{common_res::ApiError, bds_res::{CreateBdHashRes, CheckBdHashRes}};
+use crate::mode::rt::rterr::rterr;
+use crate::mode::rt::rtres::errs_res::ApiError;
+use crate::mode::rt::rtres::bds_res::{CreateBdHashRes, CheckBdHashRes};
+use garde::Validate;
 
 
 const TAG: &str = "v1 BD";
@@ -43,6 +46,10 @@ pub async fn create_bd_hash(
     Query(req): Query<CreateBdHashReq>,
     Extension(db): Extension<Arc<DbPools>>,
 ) -> Result<Json<CreateBdHashRes>, ApiError> {
+    // --------------------------------
+    // バリデーション
+    // --------------------------------
+    req.validate().map_err(ApiError::from_garde)?;
     log::debug!("Generating BD hash for '{}'", req.bd);
     // --------------------------------
     // BDハッシュの生成
@@ -54,8 +61,8 @@ pub async fn create_bd_hash(
         get_hash_with_cost(&bd, 10)
     })
     .await
-    .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, format!("Join error: {}", e)))?
-    .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to generate BD hash: {}", e)))?;
+    .map_err(|e| ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, rterr::ERR_UNEXPECTED, format!("Join error: {}", e)))?
+    .map_err(|e| ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, rterr::ERR_UNEXPECTED, format!("Failed to generate BD hash: {}", e)))?;
     // --------------------------------
     // DBに保存
     // --------------------------------
@@ -72,7 +79,7 @@ pub async fn create_bd_hash(
     let result = new_bds.insert(conn).await;
     match result {
         Ok(_) => { log::debug!("BD hash saved successfully."); }
-        Err(e) => { return Err(ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to save BD hash: {}", e))); }
+        Err(e) => { return Err(ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, rterr::ERR_DATABASE, format!("Failed to save BD hash: {}", e))); }
     }
     // --------------------------------
     // 最終レスポンス
@@ -109,6 +116,10 @@ pub async fn check_bd_hash(
     Query(req): Query<CheckBdHashReq>,
     Extension(db): Extension<Arc<DbPools>>,
 ) -> Result<Json<CheckBdHashRes>, ApiError> {
+    // --------------------------------
+    // バリデーション
+    // --------------------------------
+    req.validate().map_err(ApiError::from_garde)?;
     log::debug!("Checking BD hash for '{}'", req.bd);
     // --------------------------------
     // BDの検証
@@ -116,7 +127,7 @@ pub async fn check_bd_hash(
     let conn = db.get_ro_for_rt()?;
     let is_valid = is_valid_bd(conn, req.bd.clone())
         .await
-        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, format!("BD verification error: {}", e)))?;
+        .map_err(|e| ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, rterr::ERR_DATABASE, format!("BD verification error: {}", e)))?;
     // --------------------------------
     // 最終レスポンス
     // --------------------------------

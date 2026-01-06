@@ -54,3 +54,4 @@
 - [x] clean up unused imports in handlers
 - [x] update project version to 0.0.5
 - [x] synchronize `Cargo.lock` with updated dependencies
+- [x] refactor `ApiError` to use structured `ErrorDetail` objects

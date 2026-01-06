@@ -1,5 +1,6 @@
 pub mod main_of_rt;
 pub mod req_map;
+pub mod rterr;
 pub mod rthandler;
 pub mod rtreq;
 pub mod rtres;
