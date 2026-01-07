@@ -124,3 +124,8 @@ pub fn str_to_datetime(date_str: &str) -> anyhow::Result<ActiveValue<NaiveDateTi
     let naive = NaiveDateTime::parse_from_str(date_str, format).map_err(|e| anyhow::anyhow!("Failed to parse date string: {}", e))?;
     Ok(Set(naive))
 }
+
+/// NaiveDateTime を YYYY-MM-DDThh:mm:ss 形式の文字列に変換する
+pub fn datetime_to_str(dt: NaiveDateTime) -> String {
+    dt.format("%Y-%m-%dT%H:%M:%S").to_string()
+}

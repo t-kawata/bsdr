@@ -1,6 +1,7 @@
 pub const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 pub const DB_NAME: &str = "bsdr";
 pub const DEFAULT_SKEY: &str = "6JsfNZwZgc4VvDZyvhebvjVz/+J3IkKpvkb++HYc39Y/=";
+pub const DEFAULT_CRYPTO_KEY: &str = "kS9yzX2!vB5*mN8@qW0&eP3_rY6*tU9!";
 
 #[derive(Debug, Clone)]
 pub struct DbInfo {

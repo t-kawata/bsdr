@@ -2,5 +2,18 @@
 
 pub mod prelude;
 
+pub mod badges;
 pub mod bds;
+pub mod belongs;
+pub mod cryptos;
+pub mod flushes;
+pub mod jobs;
+pub mod match_statuses;
+pub mod matches;
+pub mod payments;
+pub mod payouts;
+pub mod points;
+pub mod pools;
+pub mod usr_badges;
 pub mod usrs;
+pub mod works;

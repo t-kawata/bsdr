@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 pub struct JwtConfig {
     pub skey: String,
+    pub crypto_key: String,
 }
 
 /// JWTのペイロード（Claims）構造体

@@ -1,9 +1,17 @@
 use std::sync::Arc;
-use axum::{Extension, Json, extract::{Path, Query}, http::{HeaderMap, StatusCode}, response::IntoResponse};
+use axum::{Extension, Json, extract::{Path, Query}, http::{header::HeaderValue, StatusCode}, response::IntoResponse};
+use garde::Validate;
 use crate::{
-    mode::rt::{rtreq::usrs_req::AuthUsrReq, rtres::{errs_res::ApiError, usrs_res::AuthUsrRes}, rterr::rterr, rtutils::db_for_rt::DbPoolsExt},
+    mode::rt::{
+        rtreq::usrs_req::{AuthUsrReq, SearchUsrsReq, UpdateUsrReq, CreateUsrReq},
+        rtres::{errs_res::ApiError, usrs_res::{AuthUsrRes, SearchUsrsRes, GetUsrRes, CreateUsrRes, UpdateUsrRes, DeleteUsrRes, HireUsrRes, DehireUsrRes}},
+        rterr::rterr,
+        rtutils::db_for_rt::DbPoolsExt
+    },
     utils::{db::DbPools, jwt::{self, JwtConfig, JwtUsr, JwtIDs, JwtRole}}
 };
+
+type HeaderMap = axum::http::HeaderMap;
 
 const TAG: &str = "v1 Usr";
 
@@ -52,7 +60,9 @@ const AUTH_DESC: &str = r#"
         AuthUsrReq,
     ),
     responses(
-        (status = 200, description = "Success")
+        (status = 200, description = "Success", body = AuthUsrRes),
+        (status = 401, description = "Unauthorized", body = ApiError),
+        (status = 500, description = "Internal Server Error", body = ApiError)
     )
 )]
 pub async fn auth_usr(
@@ -63,7 +73,7 @@ pub async fn auth_usr(
     Extension(db): Extension<Arc<DbPools>>,
 ) -> Result<Json<AuthUsrRes>, ApiError> {
     let conn = db.get_ro_for_rt()?;
-    let x_bd = headers.get("X-BD").and_then(|h| h.to_str().ok()).unwrap_or("");
+    let x_bd = headers.get("X-BD").and_then(|h: &HeaderValue| h.to_str().ok()).unwrap_or("");
     let has_bd = !x_bd.is_empty();
     let expire = req.expire.unwrap_or(24);
     if has_bd { // For BD
@@ -120,17 +130,25 @@ const SEARCH_DESC: &str = r#"
     path = "/usrs/search",
     summary = "ユーザーを検索する。",
     description = SEARCH_DESC,
+    request_body = SearchUsrsReq,
     responses(
-        (status = 200, description = "Success")
+        (status = 200, description = "Success", body = SearchUsrsRes),
+        (status = 401, description = "Unauthorized", body = ApiError),
+        (status = 422, description = "Validation Error", body = ApiError),
+        (status = 500, description = "Internal Server Error", body = ApiError)
     )
 )]
 pub async fn search_usrs(
     ju: JwtUsr,
-    _ids: JwtIDs,
-    Extension(_db): Extension<Arc<DbPools>>,
+    ids: JwtIDs,
+    Extension(db): Extension<Arc<DbPools>>,
+    Json(req): Json<SearchUsrsReq>,
 ) -> Result<impl IntoResponse, ApiError> {
     ju.allow_roles(&[JwtRole::BD, JwtRole::APX, JwtRole::VDR])?;
-    Ok("Hello, World!")
+    req.validate().map_err(|e| ApiError::from_garde(e))?;
+    let conn = db.get_ro_for_rt()?;
+    let res = crate::mode::rt::rtbl::usrs_bl::search_usrs(conn, &ju, &ids, req).await?;
+    Ok(Json(res))
 }
 
 // ============================================================
@@ -155,17 +173,26 @@ const GET_DESC: &str = r#"
     path = "/usrs/{usr_id}",
     summary = "ユーザー情報を1件取得する。",
     description = GET_DESC,
+    params(
+        ("usr_id" = u32, Path),
+    ),
     responses(
-        (status = 200, description = "Success")
+        (status = 200, description = "Success", body = GetUsrRes),
+        (status = 401, description = "Unauthorized", body = ApiError),
+        (status = 404, description = "Not Found", body = ApiError),
+        (status = 500, description = "Internal Server Error", body = ApiError)
     )
 )]
 pub async fn get_usr(
     ju: JwtUsr,
-    _ids: JwtIDs,
-    Extension(_db): Extension<Arc<DbPools>>,
+    ids: JwtIDs,
+    Extension(db): Extension<Arc<DbPools>>,
+    Path(usr_id): Path<u32>,
 ) -> Result<impl IntoResponse, ApiError> {
     ju.allow_roles(&[JwtRole::APX, JwtRole::VDR, JwtRole::USR])?;
-    Ok("Hello, World!")
+    let conn = db.get_ro_for_rt()?;
+    let res = crate::mode::rt::rtbl::usrs_bl::get_usr(conn, &ju, &ids, usr_id).await?;
+    Ok(Json(res))
 }
 
 // ============================================================ 
@@ -216,17 +243,25 @@ const CREATE_DESC: &str = r#"
     path = "/usrs",
     summary = "ユーザーを新規作成する。",
     description = CREATE_DESC,
+    request_body = CreateUsrReq,
     responses(
-        (status = 200, description = "Success")
+        (status = 200, description = "Success", body = CreateUsrRes),
+        (status = 401, description = "Unauthorized", body = ApiError),
+        (status = 422, description = "Validation Error", body = ApiError),
+        (status = 500, description = "Internal Server Error", body = ApiError)
     )
 )]
 pub async fn create_usr(
     ju: JwtUsr,
-    _ids: JwtIDs,
-    Extension(_db): Extension<Arc<DbPools>>,
+    ids: JwtIDs,
+    Extension(db): Extension<Arc<DbPools>>,
+    Json(req): Json<CreateUsrReq>,
 ) -> Result<impl IntoResponse, ApiError> {
     ju.allow_roles(&[JwtRole::BD, JwtRole::APX, JwtRole::VDR])?;
-    Ok("Hello, World!")
+    req.validate().map_err(|e| ApiError::from_garde(e))?;
+    let conn = db.get_rw_for_rt()?;
+    let res = crate::mode::rt::rtbl::usrs_bl::create_usr(conn, &ju, &ids, req).await?;
+    Ok(Json(res))
 }
 
 // ============================================================ 
@@ -278,17 +313,30 @@ const UPDATE_DESC: &str = r#"
     path = "/usrs/{usr_id}",
     summary = "ユーザー情報を更新する。",
     description = UPDATE_DESC,
+    params(
+        ("usr_id" = u32, Path),
+    ),
+    request_body = UpdateUsrReq,
     responses(
-        (status = 200, description = "Success")
+        (status = 200, description = "Success", body = UpdateUsrRes),
+        (status = 401, description = "Unauthorized", body = ApiError),
+        (status = 404, description = "Not Found", body = ApiError),
+        (status = 422, description = "Validation Error", body = ApiError),
+        (status = 500, description = "Internal Server Error", body = ApiError)
     )
 )]
 pub async fn update_usr(
     ju: JwtUsr,
-    _ids: JwtIDs,
-    Extension(_db): Extension<Arc<DbPools>>,
+    ids: JwtIDs,
+    Extension(db): Extension<Arc<DbPools>>,
+    Path(usr_id): Path<u32>,
+    Json(req): Json<UpdateUsrReq>,
 ) -> Result<impl IntoResponse, ApiError> {
     ju.allow_roles(&[JwtRole::APX, JwtRole::VDR])?;
-    Ok("Hello, World!")
+    req.validate().map_err(|e| ApiError::from_garde(e))?;
+    let conn = db.get_rw_for_rt()?;
+    let res = crate::mode::rt::rtbl::usrs_bl::update_usr(conn, &ju, &ids, usr_id, req).await?;
+    Ok(Json(res))
 }
 
 // ============================================================ 
@@ -313,16 +361,111 @@ const DELETE_DESC: &str = r#"
     path = "/usrs/{usr_id}",
     summary = "ユーザーを削除する。",
     description = DELETE_DESC,
+    params(
+        ("usr_id" = u32, Path),
+    ),
     responses(
-        (status = 200, description = "Success")
+        (status = 200, description = "Success", body = DeleteUsrRes),
+        (status = 401, description = "Unauthorized", body = ApiError),
+        (status = 404, description = "Not Found", body = ApiError),
+        (status = 500, description = "Internal Server Error", body = ApiError)
     )
 )]
 pub async fn delete_usr(
     ju: JwtUsr,
-    _ids: JwtIDs,
-    Extension(_db): Extension<Arc<DbPools>>,
+    ids: JwtIDs,
+    Extension(db): Extension<Arc<DbPools>>,
+    Path(usr_id): Path<u32>,
 ) -> Result<impl IntoResponse, ApiError> {
     ju.allow_roles(&[JwtRole::APX, JwtRole::VDR])?;
-    Ok("Hello, World!")
+    let conn = db.get_rw_for_rt()?;
+    let res = crate::mode::rt::rtbl::usrs_bl::delete_usr(conn, &ju, &ids, usr_id).await?;
+    Ok(Json(res))
 }
 
+
+// ============================================================ 
+// Hire
+// ============================================================ 
+const HIRE_DESC: &str = r#"
+### ⚫︎ 概要
+- VDR は、配下の USR に対してスタッフ権限を付与できる
+- スタッフとなった USR は、認証時にスタッフ token を取得できるようになる
+- スタッフ token は VDR と同等の権限を持つ
+- USR は自分自身のスタッフ権限を操作できない
+
+### ⚫︎ Request
+| KEY | TYPE | VALIDATION | DESCRIPTION |
+| --- | --- | --- | --- |
+| `usr_id` | number | required, gte=1 | ユーザーID |
+"#;
+#[utoipa::path(
+    tag = TAG,
+    patch,
+    security(("api_jwt_token" = [])),
+    path = "/usrs/{usr_id}/hire",
+    summary = "ユーザーをスタッフとして雇用する。",
+    description = HIRE_DESC,
+    params(
+        ("usr_id" = u32, Path),
+    ),
+    responses(
+        (status = 200, description = "Success", body = HireUsrRes),
+        (status = 401, description = "Unauthorized", body = ApiError),
+        (status = 404, description = "Not Found", body = ApiError),
+        (status = 500, description = "Internal Server Error", body = ApiError)
+    )
+)]
+pub async fn hire_usr(
+    ju: JwtUsr,
+    ids: JwtIDs,
+    Extension(db): Extension<Arc<DbPools>>,
+    Path(usr_id): Path<u32>,
+) -> Result<impl IntoResponse, ApiError> {
+    ju.allow_roles(&[JwtRole::VDR])?;
+    let conn = db.get_rw_for_rt()?;
+    let res = crate::mode::rt::rtbl::usrs_bl::hire_usr(conn, &ju, &ids, usr_id).await?;
+    Ok(Json(res))
+}
+
+// ============================================================ 
+// Dehire
+// ============================================================ 
+const DEHIRE_DESC: &str = r#"
+### ⚫︎ 概要
+- VDR は、配下の スタッフ に対してスタッフ権限を剥奪できる
+- 権限剥奪後も、既に発行された token の expire までは有効であることに注意
+
+### ⚫︎ Request
+| KEY | TYPE | VALIDATION | DESCRIPTION |
+| --- | --- | --- | --- |
+| `usr_id` | number | required, gte=1 | ユーザーID |
+"#;
+#[utoipa::path(
+    tag = TAG,
+    delete,
+    security(("api_jwt_token" = [])),
+    path = "/usrs/{usr_id}/hire",
+    summary = "ユーザーのスタッフ権限を解除（解雇）する。",
+    description = DEHIRE_DESC,
+    params(
+        ("usr_id" = u32, Path),
+    ),
+    responses(
+        (status = 200, description = "Success", body = DehireUsrRes),
+        (status = 401, description = "Unauthorized", body = ApiError),
+        (status = 404, description = "Not Found", body = ApiError),
+        (status = 500, description = "Internal Server Error", body = ApiError)
+    )
+)]
+pub async fn dehire_usr(
+    ju: JwtUsr,
+    ids: JwtIDs,
+    Extension(db): Extension<Arc<DbPools>>,
+    Path(usr_id): Path<u32>,
+) -> Result<impl IntoResponse, ApiError> {
+    ju.allow_roles(&[JwtRole::VDR])?;
+    let conn = db.get_rw_for_rt()?;
+    let res = crate::mode::rt::rtbl::usrs_bl::dehire_usr(conn, &ju, &ids, usr_id).await?;
+    Ok(Json(res))
+}

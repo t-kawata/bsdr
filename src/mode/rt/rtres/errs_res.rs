@@ -1,8 +1,9 @@
 use utoipa::ToSchema;
 use axum::{Json, http::StatusCode, response::{Response, IntoResponse}};
 use serde::Serialize;
+use sea_orm::{TransactionError, DbErr};
 
-#[derive(Serialize, ToSchema)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ErrorDetail {
     /// エラー箇所 (例: "email" / "system")
     #[schema(example = "email")]
@@ -17,7 +18,7 @@ pub struct ErrorDetail {
     pub message: String,
 }
 
-#[derive(Serialize, ToSchema)] // OpenAPIドキュメント生成とシリアライズ用
+#[derive(Debug, Serialize, ToSchema)] // OpenAPIドキュメント生成とシリアライズ用
 pub struct ApiError {
     /// HTTPステータスコード (例: 500)
     #[schema(example = 500)] 
@@ -74,5 +75,32 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = StatusCode::from_u16(self.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         (status, Json(self)).into_response()
+    }
+}
+
+impl std::fmt::Display for ApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(first) = self.errors.first() {
+            write!(f, "[{}] {}", first.code, first.message)
+        } else {
+            write!(f, "ApiError(status={})", self.status)
+        }
+    }
+}
+
+impl From<TransactionError<ApiError>> for ApiError {
+    fn from(e: TransactionError<ApiError>) -> Self {
+        match e {
+            TransactionError::Connection(db_err) => {
+                ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, crate::mode::rt::rterr::rterr::ERR_DATABASE, format!("Database error: {}", db_err))
+            }
+            TransactionError::Transaction(api_err) => api_err,
+        }
+    }
+}
+
+impl From<DbErr> for ApiError {
+    fn from(e: DbErr) -> Self {
+        ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, crate::mode::rt::rterr::rterr::ERR_DATABASE, format!("Database error: {}", e))
     }
 }

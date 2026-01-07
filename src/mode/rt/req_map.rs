@@ -9,6 +9,7 @@ use utoipa::Modify;
 use utoipa::openapi::security::{SecurityScheme, HttpBuilder, HttpAuthScheme};
 use crate::mode::rt::rthandler::usrs_handler::*;
 use crate::mode::rt::rthandler::bds_handler::*;
+use crate::mode::rt::rthandler::cryptos_handler::*;
 
 // ==============================
 // セキュリティアドオン作成
@@ -54,12 +55,18 @@ fn app_routes() -> OpenApiRouter { OpenApiRouter::new()
     .routes(routes!(create_usr))
     .routes(routes!(update_usr))
     .routes(routes!(delete_usr))
+    .routes(routes!(hire_usr))
+    .routes(routes!(dehire_usr))
+    .routes(routes!(encrypt_handler))
+    .routes(routes!(decrypt_handler))
+    .routes(routes!(create_vdr_token_handler))
+    .routes(routes!(get_vdr_token_handler))
 }
 
 // ==============================
 // リクエストマッピング
 // ==============================
-pub fn map_request(cors: bool, db: DbPools, rt_skey: &str) -> Router {
+pub fn map_request(cors: bool, db: DbPools, rt_skey: &str, rt_crypto_key: &str) -> Router {
     log::debug!("Mapping requests.");
     let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .nest("/v1", app_routes())
@@ -68,7 +75,10 @@ pub fn map_request(cors: bool, db: DbPools, rt_skey: &str) -> Router {
         .merge(router)
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api))
         .layer(Extension(Arc::new(db)))
-        .layer(Extension(Arc::new(JwtConfig { skey: rt_skey.to_string() })));
+        .layer(Extension(Arc::new(JwtConfig {
+            skey: rt_skey.to_string(),
+            crypto_key: rt_crypto_key.to_string(),
+        })));
     if cors {
         app = app.layer(cors_layer());
     }

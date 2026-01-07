@@ -5,11 +5,37 @@ pub struct Migrator;
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
         vec![
-            Box::new(m20260104_092035_create_bd_tbl::Migration),
-            Box::new(m20260104_092136_create_usr_tbl::Migration),
+            Box::new(m20260104_092035_create_bds_tbl::Migration),
+            Box::new(m20260104_092136_create_usrs_tbl::Migration),
+            Box::new(m20260107_050440_create_cryptos_tbl::Migration),
+            Box::new(m20260107_050440_create_jobs_tbl::Migration),
+            Box::new(m20260107_050440_create_matches_tbl::Migration),
+            Box::new(m20260107_050440_create_match_statuses_tbl::Migration),
+            Box::new(m20260107_050440_create_works_tbl::Migration),
+            Box::new(m20260107_050440_create_belongs_tbl::Migration),
+            Box::new(m20260107_050440_create_badges_tbl::Migration),
+            Box::new(m20260107_050440_create_usr_badges_tbl::Migration),
+            Box::new(m20260107_050440_create_points_tbl::Migration),
+            Box::new(m20260107_050440_create_payments_tbl::Migration),
+            Box::new(m20260107_050440_create_pools_tbl::Migration),
+            Box::new(m20260107_050440_create_flushes_tbl::Migration),
+            Box::new(m20260107_050440_create_payouts_tbl::Migration),
         ]
     }
 }
 
-mod m20260104_092035_create_bd_tbl;
-mod m20260104_092136_create_usr_tbl;
+mod m20260104_092035_create_bds_tbl;
+mod m20260104_092136_create_usrs_tbl;
+mod m20260107_050440_create_cryptos_tbl;
+mod m20260107_050440_create_jobs_tbl;
+mod m20260107_050440_create_matches_tbl;
+mod m20260107_050440_create_match_statuses_tbl;
+mod m20260107_050440_create_works_tbl;
+mod m20260107_050440_create_belongs_tbl;
+mod m20260107_050440_create_badges_tbl;
+mod m20260107_050440_create_usr_badges_tbl;
+mod m20260107_050440_create_points_tbl;
+mod m20260107_050440_create_payments_tbl;
+mod m20260107_050440_create_pools_tbl;
+mod m20260107_050440_create_flushes_tbl;
+mod m20260107_050440_create_payouts_tbl;

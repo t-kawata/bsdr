@@ -1,4 +1,4 @@
-use crate::config::settings::DEFAULT_SKEY;
+use crate::config::settings::{DEFAULT_SKEY, DEFAULT_CRYPTO_KEY};
 use crate::utils::db::get_db;
 use crate::utils::env::get_env_or;
 use crate::utils::init::{CommonFlgs, HasCommonFlgs, init};
@@ -50,6 +50,7 @@ pub async fn main_of_rt(args: Chain<Once<String>, Cloned<Iter<'_, String>>>) {
     let rt_port = get_env_or("RT_PORT", 8888);
     let cors_on_rt = get_env_or("CORS_ON_RT", false);
     let rt_skey = get_env_or("RT_SKEY", DEFAULT_SKEY.to_string());
+    let rt_crypto_key = get_env_or("RT_CRYPTO_KEY", DEFAULT_CRYPTO_KEY.to_string());
     let s3_use_local = get_env_or("S3_USE_LOCAL", false);
     let s3_local_dir = get_env_or("S3_LOCAL_DIR", "dummy".to_string());
     let s3_down_dir = get_env_or("S3_DOWN_DIR", "dummy".to_string());
@@ -61,6 +62,7 @@ pub async fn main_of_rt(args: Chain<Once<String>, Cloned<Iter<'_, String>>>) {
     log::debug!("RT_PORT: {}", rt_port);
     log::debug!("CORS_ON_RT: {}", cors_on_rt);
     log::debug!("RT_SKEY: {}", rt_skey);
+    log::debug!("RT_CRYPTO_KEY: {}", rt_crypto_key);
     log::debug!("S3_USE_LOCAL: {}", s3_use_local);
     log::debug!("S3_LOCAL_DIR: {}", s3_local_dir);
     log::debug!("S3_DOWN_DIR: {}", s3_down_dir);
@@ -91,7 +93,7 @@ pub async fn main_of_rt(args: Chain<Once<String>, Cloned<Iter<'_, String>>>) {
     // ==============================
     // Axum リクエストマッピングと起動
     // ==============================
-    let router = req_map::map_request(cors_on_rt, db, &rt_skey);
+    let router = req_map::map_request(cors_on_rt, db, &rt_skey, &rt_crypto_key);
     log::debug!("Starting RT server on port {}...", rt_port);
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{rt_port}")).await.expect("Failed to bind listener.");
     axum::serve(listener, router).await.expect("Failed to serve.");

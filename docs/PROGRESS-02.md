@@ -19,6 +19,8 @@
 - [x] implement `inner(custom(...))` pattern
 - [x] enforce specific system error codes
 - [x] create `docs/REST_API_DEV_STRICT_RULES.md`
+- [x] define CRUD as Search/Get/Create/Update/Delete
+- [x] mandate Search->Get->Create->Update->Delete order
 - [x] define strict Routing registration rules
 - [x] define Handler naming (plural entities)
 - [x] define mandatory `TAG` usage in handlers

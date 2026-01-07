@@ -6,6 +6,7 @@ pub const ERR_DATABASE: &str = "E0002";
 pub const ERR_AUTH: &str = "E0003";
 pub const ERR_VALIDATION: &str = "E0004";
 pub const ERR_INVALID_REQUEST: &str = "E0005";
+pub const ERR_NOT_FOUND: &str = "E0012";
 
 // ================================
 // 具体バリデーションエラー
