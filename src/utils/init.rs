@@ -65,7 +65,7 @@ where
         };
 
         let mut message_content = message.to_string();
-        if target.starts_with("sea_orm.driver.") {
+        if target.starts_with("sea_orm.driver.") || target.starts_with("sea_orm.database.") {
             // Cyan (36)
             message_content = format!("\x1b[36m{}\x1b[0m", message_content);
         }

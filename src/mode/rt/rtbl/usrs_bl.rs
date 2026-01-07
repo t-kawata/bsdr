@@ -27,23 +27,21 @@ async fn find_usrs_base(
     // VDR/USR ロールでは常に両方の条件を含める。
     match ju.role() {
         JwtRole::BD => {
-            // BD は全てのユーザを取得できる
+            log::debug!("<UsrBl> find_usrs_base: BD role. No filtering.");
             Ok(query)
         }
         JwtRole::APX => {
-            // APX は配下の全てのユーザを取得できる
+            log::debug!("<UsrBl> find_usrs_base: APX role. Filter apx_id: {}", ids.apx_id);
             Ok(query.filter(usrs::Column::ApxId.eq(ids.apx_id)))
         }
         JwtRole::VDR => {
-            // VDR は配下の全てのユーザを取得できる
-            // apx_id と vdr_id による厳密なパーティションフィルタ
+            log::debug!("<UsrBl> find_usrs_base: VDR role. Filter apx_id: {}, vdr_id: {}", ids.apx_id, ids.vdr_id);
             Ok(query
                 .filter(usrs::Column::ApxId.eq(ids.apx_id))
                 .filter(usrs::Column::VdrId.eq(ids.vdr_id)))
         }
         JwtRole::USR => {
-            // USR は自分自身のレコードのみ
-            // apx_id と vdr_id による厳密なパーティションフィルタをかけつつ、ID で特定
+            log::debug!("<UsrBl> find_usrs_base: USR role. Filter apx_id: {}, vdr_id: {}, usr_id: {}", ids.apx_id, ids.vdr_id, ids.usr_id);
             Ok(query
                 .filter(usrs::Column::ApxId.eq(ids.apx_id))
                 .filter(usrs::Column::VdrId.eq(ids.vdr_id))
@@ -64,19 +62,23 @@ pub async fn search_usrs(
     // --------------------------------
     // 1. クエリの基本形を取得
     // --------------------------------
+    log::debug!("<UsrBl> search_usrs: Constructing base query.");
     let mut query = find_usrs_base(ju, ids).await?;
     // --------------------------------
     // 2. 検索条件（LIKE検索）
     // --------------------------------
     if !req.name.is_empty() {
+        log::debug!("<UsrBl> search_usrs: Filter by name: {}", req.name);
         query = query.filter(usrs::Column::Name.contains(&req.name));
     }
     if !req.email.is_empty() {
+        log::debug!("<UsrBl> search_usrs: Filter by email: {}", req.email);
         query = query.filter(usrs::Column::Email.contains(&req.email));
     }
     // --------------------------------
     // 3. 日時範囲のフィルタリング
     // --------------------------------
+    log::debug!("<UsrBl> search_usrs: Filter by range [{}, {}]", req.bgn_at, req.end_at);
     let format = "%Y-%m-%dT%H:%M:%S";
     let bgn_at = NaiveDateTime::parse_from_str(&req.bgn_at, format).map_err(|e| ApiError::new_system(StatusCode::BAD_REQUEST, rterr::ERR_INVALID_REQUEST, format!("Invalid bgn_at: {}", e)))?;
     let end_at = NaiveDateTime::parse_from_str(&req.end_at, format).map_err(|e| ApiError::new_system(StatusCode::BAD_REQUEST, rterr::ERR_INVALID_REQUEST, format!("Invalid end_at: {}", e)))?;
@@ -86,12 +88,14 @@ pub async fn search_usrs(
     // --------------------------------
     // 4. データの取得
     // --------------------------------
+    log::debug!("<UsrBl> search_usrs: Fetching records. limit: {}, offset: {}", req.limit, req.offset);
     let models = query
         .offset(req.offset as u64)
         .limit(req.limit as u64)
         .all(conn)
         .await
         .map_err(|e| ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, rterr::ERR_DATABASE, format!("Search query error: {}", e)))?;
+    log::debug!("<UsrBl> search_usrs: Found {} records.", models.len());
     // --------------------------------
     // 5. DBデータのレスポンス用変換
     // --------------------------------
@@ -114,6 +118,7 @@ pub async fn get_usr(
     // --------------------------------
     // 1. クエリの基本形を取得
     // --------------------------------
+    log::debug!("<UsrBl> get_usr: Fetching user: {}", target_usr_id);
     let query = find_usrs_base(ju, ids).await?;
     // --------------------------------
     // 2. ユーザーの取得
@@ -144,6 +149,7 @@ pub async fn create_usr(
     let utype: u8;
     let target_label: &str;
 
+    log::debug!("<UsrBl> create_usr: Role-based validation for {:?}.", ju.role());
     match ju.role() {
         JwtRole::BD => {
             // BD は APX のみ作成可能
@@ -152,7 +158,7 @@ pub async fn create_usr(
             utype = UsrType::Corp as u8; // APX は常に法人タイプ
             target_label = "APX";
             // 不要な項目があればエラー
-            if req.usr_type.is_some() || req.base_point > 0 || req.belong_rate > 0.0 || req.max_works > 0 || req.flush_days > 0 || req.rate > 0.0 || req.flush_fee_rate > 0.0 {
+            if req.usr_type.is_some() || req.base_point.is_some() || req.belong_rate.is_some() || req.max_works.is_some() || req.flush_days.is_some() || req.rate.is_some() || req.flush_fee_rate.is_some() {
                 return Err(ApiError::new_system(StatusCode::BAD_REQUEST, rterr::ERR_INVALID_REQUEST, "BD can only create APX. Unnecessary parameters provided."));
             }
         }
@@ -163,11 +169,11 @@ pub async fn create_usr(
             utype = UsrType::Corp as u8; // VDR は常に法人タイプ
             target_label = "VDR";
             // VDR 必須項目のチェック
-            if req.base_point == 0 || req.belong_rate == 0.0 || req.max_works == 0 || req.flush_fee_rate == 0.0 {
+            if req.base_point.is_none() || req.belong_rate.is_none() || req.max_works.is_none() || req.flush_fee_rate.is_none() {
                 return Err(ApiError::new_system(StatusCode::BAD_REQUEST, rterr::ERR_INVALID_REQUEST, "VDR requires base_point, belong_rate, max_works, and flush_fee_rate."));
             }
             // 不要な項目があればエラー
-            if req.usr_type.is_some() || req.flush_days > 0 || req.rate > 0.0 {
+            if req.usr_type.is_some() || req.flush_days.is_some() || req.rate.is_some() {
                 return Err(ApiError::new_system(StatusCode::BAD_REQUEST, rterr::ERR_INVALID_REQUEST, "APX can only create VDR. Unnecessary parameters provided."));
             }
         }
@@ -180,17 +186,17 @@ pub async fn create_usr(
             let t = req.usr_type.ok_or_else(|| ApiError::new_system(StatusCode::BAD_REQUEST, rterr::ERR_INVALID_REQUEST, "Usr type is required."))?;
             utype = t;
             // 不要な項目のチェック
-            if req.base_point > 0 || req.belong_rate > 0.0 || req.max_works > 0 || req.flush_fee_rate > 0.0 {
+            if req.base_point.is_some() || req.belong_rate.is_some() || req.max_works.is_some() || req.flush_fee_rate.is_some() {
                 return Err(ApiError::new_system(StatusCode::BAD_REQUEST, rterr::ERR_INVALID_REQUEST, "VDR cannot set base_point, belong_rate, max_works, or flush_fee_rate for USR."));
             }
             if utype == UsrType::Corp as u8 {
                 // 法人としての必須項目
-                if req.flush_days == 0 || req.rate == 0.0 {
+                if req.flush_days.is_none() || req.rate.is_none() {
                     return Err(ApiError::new_system(StatusCode::BAD_REQUEST, rterr::ERR_INVALID_REQUEST, "Corporate USR requires flush_days and rate."));
                 }
             } else if utype == UsrType::Indi as u8 {
                 // 個人としてのチェック (不要な項目)
-                if req.flush_days > 0 || req.rate > 0.0 {
+                if req.flush_days.is_some() || req.rate.is_some() {
                     return Err(ApiError::new_system(StatusCode::BAD_REQUEST, rterr::ERR_INVALID_REQUEST, "Personal USR cannot have flush_days or rate."));
                 }
             }
@@ -202,6 +208,7 @@ pub async fn create_usr(
     // --------------------------------
     // 2. メールアドレスの重複チェック (パーティション内)
     // --------------------------------
+    log::debug!("<UsrBl> create_usr: Email duplication check for {}.", req.email);
     let exists = usrs::Entity::find()
         .filter(usrs::Column::Email.eq(&req.email))
         .filter(usrs::Column::ApxId.eq(aid))
@@ -210,11 +217,13 @@ pub async fn create_usr(
         .await
         .map_err(|e| ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, rterr::ERR_DATABASE, format!("Email check error: {}", e)))?;
     if exists.is_some() {
+        log::debug!("<UsrBl> create_usr: Email {} already exists.", req.email);
         return Err(ApiError::new_system(StatusCode::BAD_REQUEST, rterr::ERR_INVALID_REQUEST, format!("Email already exists as {}.", target_label)));
     }
     // --------------------------------
     // 3. 名前の正規化 (個人タイプの場合)
     // --------------------------------
+    log::debug!("<UsrBl> create_usr: Normalizing name for type {}.", utype);
     let mut name = req.name.clone();
     if utype == UsrType::Indi as u8 {
         name = name.replace('　', " ");
@@ -239,8 +248,10 @@ pub async fn create_usr(
     // 6. ActiveModel 作成と保存 (Transaction)
     // --------------------------------
     let is_vdr_creation = ju.role() == JwtRole::APX;
+    log::debug!("<UsrBl> create_usr: Starting transaction. is_vdr_creation: {}", is_vdr_creation);
     let created_id = conn.transaction::<_, u32, ApiError>(|tx| {
         Box::pin(async move {
+            log::debug!("<UsrBl> create_usr: Inserting user record.");
             let mut active: usrs::ActiveModel = Default::default();
             active.apx_id = Set(aid);
             active.vdr_id = Set(vid);
@@ -250,15 +261,16 @@ pub async fn create_usr(
             active.bgn_at = bgn_at;
             active.end_at = end_at;
             active.r#type = Set(utype);
-            active.base_point = Set(req.base_point);
-            active.belong_rate = Set(Decimal::from_f64(req.belong_rate).unwrap_or_default());
-            active.max_works = Set(req.max_works);
-            active.flush_days = Set(req.flush_days);
-            active.rate = Set(Decimal::from_f64(req.rate).unwrap_or_default());
-            active.flush_fee_rate = Set(Decimal::from_f64(req.flush_fee_rate).unwrap_or_default());
+            active.base_point = Set(req.base_point.unwrap_or(0));
+            active.belong_rate = Set(Decimal::from_f64(req.belong_rate.unwrap_or(0.0)).unwrap_or_default());
+            active.max_works = Set(req.max_works.unwrap_or(0));
+            active.flush_days = Set(req.flush_days.unwrap_or(0));
+            active.rate = Set(Decimal::from_f64(req.rate.unwrap_or(0.0)).unwrap_or_default());
+            active.flush_fee_rate = Set(Decimal::from_f64(req.flush_fee_rate.unwrap_or(0.0)).unwrap_or_default());
             let res: usrs::Model = active.insert(tx).await.map_err(|e| ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, rterr::ERR_DATABASE, format!("Insert user error: {}", e)))?;
             // VDR作成時のみ Pool を作成
             if is_vdr_creation {
+                log::debug!("<UsrBl> create_usr: Creating pool for VDR.");
                 let pool = pools::ActiveModel {
                     apx_id: Set(aid.unwrap_or(0)),
                     vdr_id: Set(res.id as u32),
@@ -269,6 +281,7 @@ pub async fn create_usr(
                 };
                 pool.insert(tx).await.map_err(|e| ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, rterr::ERR_DATABASE, format!("Insert pool error: {}", e)))?;
             }
+            log::debug!("<UsrBl> create_usr: Transaction success. ID: {}", res.id);
             Ok(res.id as u32)
         })
     }).await?;
@@ -288,6 +301,7 @@ pub async fn update_usr(
     target_usr_id: u32,
     req: UpdateUsrReq,
 ) -> Result<UpdateUsrRes, ApiError> {
+    log::debug!("<UsrBl> update_usr: Fetching target user: {}", target_usr_id);
     // --------------------------------
     // 1. クエリの基本形を取得して存在確認
     // --------------------------------
@@ -297,6 +311,7 @@ pub async fn update_usr(
         .await
         .map_err(|e| ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, rterr::ERR_DATABASE, format!("Fetch user error: {}", e)))?
         .ok_or_else(|| ApiError::new_system(StatusCode::NOT_FOUND, rterr::ERR_INVALID_REQUEST, "User not found."))?;
+    log::debug!("<UsrBl> update_usr: Found target user. Processing field updates.");
     // --------------------------------
     // 2. 更新用 ActiveModel の準備
     // --------------------------------
@@ -355,9 +370,11 @@ pub async fn update_usr(
     // --------------------------------
     // 4. 保存
     // --------------------------------
+    log::debug!("<UsrBl> update_usr: Saving changes to DB.");
     active.update(conn)
         .await
         .map_err(|e| ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, rterr::ERR_DATABASE, format!("Update user error: {}", e)))?;
+    log::debug!("<UsrBl> update_usr: Success.");
     // --------------------------------
     // 5. 最終レスポンス
     // --------------------------------
@@ -373,6 +390,7 @@ pub async fn delete_usr(
     ids: &JwtIDs,
     target_usr_id: u32,
 ) -> Result<DeleteUsrRes, ApiError> {
+    log::debug!("<UsrBl> delete_usr: Fetching target user: {}", target_usr_id);
     // --------------------------------
     // 1. クエリの基本形を取得して存在確認
     // --------------------------------
@@ -382,6 +400,7 @@ pub async fn delete_usr(
         .await
         .map_err(|e| ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, rterr::ERR_DATABASE, format!("Fetch user error: {}", e)))?
         .ok_or_else(|| ApiError::new_system(StatusCode::NOT_FOUND, rterr::ERR_INVALID_REQUEST, "User not found."))?;
+    log::debug!("<UsrBl> delete_usr: Found target user. Starting deletion transaction.");
     // --------------------------------
     // 2. 削除の実行
     // --------------------------------
@@ -389,6 +408,7 @@ pub async fn delete_usr(
         Box::pin(async move {
             let target_id = model.id as u32;
             if model.apx_id.is_some() && model.vdr_id.is_none() {
+                log::debug!("<UsrBl> delete_usr: Target is VDR. Cascading sub-records deletion.");
                 // (1) VDR だった場合の一括削除
                 let vid = target_id;
                 usrs::Entity::delete_many().filter(usrs::Column::VdrId.eq(vid)).exec(tx).await.map_err(|e| ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, rterr::ERR_DATABASE, format!("Delete sub-usrs error: {}", e)))?;
@@ -406,6 +426,7 @@ pub async fn delete_usr(
                 payouts::Entity::delete_many().filter(payouts::Column::VdrId.eq(vid)).exec(tx).await.map_err(|e| ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, rterr::ERR_DATABASE, format!("Delete payouts error: {}", e)))?;
                 cryptos::Entity::delete_many().filter(cryptos::Column::VdrId.eq(vid)).exec(tx).await.map_err(|e| ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, rterr::ERR_DATABASE, format!("Delete cryptos error: {}", e)))?;
             } else if model.apx_id.is_some() && model.vdr_id.is_some() {
+                log::debug!("<UsrBl> delete_usr: Target is USR. Cascading sub-records deletion.");
                 // (2) USR だった場合の一括削除
                 let uid = target_id;
                 // matches (from, to)
@@ -429,7 +450,9 @@ pub async fn delete_usr(
                 // badges (corp_id)
                 badges::Entity::delete_many().filter(badges::Column::CorpId.eq(uid)).exec(tx).await.map_err(|e| ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, rterr::ERR_DATABASE, format!("Delete badges error: {}", e)))?;
             }
+            log::debug!("<UsrBl> delete_usr: Finally deleting user record itself.");
             model.delete(tx).await.map_err(|e| ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, rterr::ERR_DATABASE, format!("Delete user error: {}", e)))?;
+            log::debug!("<UsrBl> delete_usr: Transaction success.");
             Ok(())
         })
     }).await?;
@@ -439,7 +462,7 @@ pub async fn delete_usr(
     Ok(DeleteUsrRes { id: target_usr_id })
 }
 // ============================================================
-// Staff Management (Hire/Dehire)
+// Staff Management Hire
 // ============================================================
 pub async fn hire_usr(
     conn: &DatabaseConnection,
@@ -447,6 +470,7 @@ pub async fn hire_usr(
     ids: &JwtIDs,
     target_usr_id: u32,
 ) -> Result<HireUsrRes, ApiError> {
+    log::debug!("<UsrBl> hire_usr: Fetching target user: {}", target_usr_id);
     // 1. 権限チェックと対象ユーザーの取得 (VDRのパーティション内かつ is_staff=0)
     let model = find_usrs_base(ju, ids).await?
         .filter(usrs::Column::Id.eq(target_usr_id))
@@ -456,6 +480,8 @@ pub async fn hire_usr(
         .map_err(|e| ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, rterr::ERR_DATABASE, format!("Fetch user error: {}", e)))?
         .ok_or_else(|| ApiError::new_system(StatusCode::NOT_FOUND, rterr::ERR_INVALID_REQUEST, "User not found or already a staff."))?;
 
+    log::debug!("<UsrBl> hire_usr: Setting is_staff=1 for {}.", target_usr_id);
+
     // 2. 更新
     let mut active = model.into_active_model();
     active.is_staff = Set(1);
@@ -464,12 +490,16 @@ pub async fn hire_usr(
     Ok(HireUsrRes { id: target_usr_id })
 }
 
+// ============================================================
+// Staff Management Dehire
+// ============================================================
 pub async fn dehire_usr(
     conn: &DatabaseConnection,
     ju: &JwtUsr,
     ids: &JwtIDs,
     target_usr_id: u32,
 ) -> Result<DehireUsrRes, ApiError> {
+    log::debug!("<UsrBl> dehire_usr: Fetching target user: {}", target_usr_id);
     // 1. 権限チェックと対象ユーザーの取得 (VDRのパーティション内かつ is_staff=1)
     let model = find_usrs_base(ju, ids).await?
         .filter(usrs::Column::Id.eq(target_usr_id))
@@ -478,6 +508,8 @@ pub async fn dehire_usr(
         .await
         .map_err(|e| ApiError::new_system(StatusCode::INTERNAL_SERVER_ERROR, rterr::ERR_DATABASE, format!("Fetch user error: {}", e)))?
         .ok_or_else(|| ApiError::new_system(StatusCode::NOT_FOUND, rterr::ERR_INVALID_REQUEST, "User not found or not a staff."))?;
+
+    log::debug!("<UsrBl> dehire_usr: Setting is_staff=0 for {}.", target_usr_id);
 
     // 2. 更新
     let mut active = model.into_active_model();

@@ -77,27 +77,48 @@ pub async fn auth_usr(
     let has_bd = !x_bd.is_empty();
     let expire = req.expire.unwrap_or(24);
     if has_bd { // For BD
+        log::debug!("<Auth> BD attempt. expire: {}h", expire);
         let token = jwt::auth_bd(conn, x_bd, &jwt_config.skey, expire)
             .await
-            .map_err(|e| ApiError::new_system(StatusCode::UNAUTHORIZED, rterr::ERR_AUTH, e.to_string()))?;
+            .map_err(|e| {
+                log::debug!("<Auth> BD failed: {}", e);
+                ApiError::new_system(StatusCode::UNAUTHORIZED, rterr::ERR_AUTH, e.to_string())
+            })?;
+        log::debug!("<Auth> BD success.");
         return Ok(Json(AuthUsrRes { token }))
     } else { // 通常のユーザー認証
         if jwt::is_apx(&apx_id, &vdr_id, &1) { // For APX (uid is dummy > 0)
+            log::debug!("<Auth> APX attempt. email: {}, expire: {}h", req.email, expire);
             let token = jwt::auth_apx(conn, req.email.clone(), req.password.clone(), &jwt_config.skey, expire)
                 .await
-                .map_err(|e| ApiError::new_system(StatusCode::UNAUTHORIZED, rterr::ERR_AUTH, e.to_string()))?;
+                .map_err(|e| {
+                    log::debug!("<Auth> APX failed for {}: {}", req.email, e);
+                    ApiError::new_system(StatusCode::UNAUTHORIZED, rterr::ERR_AUTH, e.to_string())
+                })?;
+            log::debug!("<Auth> APX success for {}.", req.email);
             return Ok(Json(AuthUsrRes { token }));
         } else if jwt::is_vdr(&apx_id, &vdr_id, &1) { // For VDR (uid is dummy > 0)
+            log::debug!("<Auth> VDR attempt. apx: {}, email: {}, expire: {}h", apx_id, req.email, expire);
             let token = jwt::auth_vdr(conn, apx_id, req.email.clone(), req.password.clone(), &jwt_config.skey, expire)
                 .await
-                .map_err(|e| ApiError::new_system(StatusCode::UNAUTHORIZED, rterr::ERR_AUTH, e.to_string()))?;
+                .map_err(|e| {
+                    log::debug!("<Auth> VDR failed for apx:{} email:{}: {}", apx_id, req.email, e);
+                    ApiError::new_system(StatusCode::UNAUTHORIZED, rterr::ERR_AUTH, e.to_string())
+                })?;
+            log::debug!("<Auth> VDR success for apx:{} email:{}.", apx_id, req.email);
             return Ok(Json(AuthUsrRes { token }));
         } else if jwt::is_usr(&apx_id, &vdr_id, &1) { // For USR (uid is dummy > 0)
+            log::debug!("<Auth> USR attempt. apx: {}, vdr: {}, email: {}, expire: {}h", apx_id, vdr_id, req.email, expire);
             let token = jwt::auth_usr(conn, apx_id, vdr_id, req.email.clone(), req.password.clone(), &jwt_config.skey, expire)
                 .await
-                .map_err(|e| ApiError::new_system(StatusCode::UNAUTHORIZED, rterr::ERR_AUTH, e.to_string()))?;
+                .map_err(|e| {
+                    log::debug!("<Auth> USR failed for apx:{} vdr:{} email:{}: {}", apx_id, vdr_id, req.email, e);
+                    ApiError::new_system(StatusCode::UNAUTHORIZED, rterr::ERR_AUTH, e.to_string())
+                })?;
+            log::debug!("<Auth> USR success for apx:{} vdr:{} email:{}.", apx_id, vdr_id, req.email);
             return Ok(Json(AuthUsrRes { token }));
         } else {
+            log::debug!("<Auth> Invalid ID combination. apx: {}, vdr: {}", apx_id, vdr_id);
             return Err(ApiError::new_system(StatusCode::UNAUTHORIZED, rterr::ERR_INVALID_REQUEST, "Invalid APX ID or VDR ID."));
         }
     }
@@ -224,17 +245,17 @@ const CREATE_DESC: &str = r#"
 | KEY | TYPE | VALIDATION | DESCRIPTION |
 | --- | --- | --- | --- |
 | `name` | string | required, max=50 | ユーザー名 |
-| `email` | string | required, email, half, max=50 | メールアドレス |
+| `email` | string | required, email, max=50 | メールアドレス |
 | `password` | string | required, password | パスワード |
 | `bgn_at` | string | required, datetime | 開始日時 |
 | `end_at` | string | required, datetime | 終了日時 |
-| `type` | number | omitempty, oneof=1 2 | 1: 法人, 2: 個人 |
-| `base_point` | number | gte=0 | 基本ポイント数 |
-| `belong_rate` | number | gte=0 | 所属割増率 |
-| `max_works` | number | gte=0 | 最大就労数 |
-| `flush_days` | number | gte=0 | 現金分配サイクル日数 |
-| `rate` | number | gte=0 | 割増ポイント率 |
-| `flush_fee_rate` | number | gte=0 | 事務コスト分配率 |
+| `type` | number | 🔴 APX/VDRでは入れないこと(omitempty), oneof=1 2 | 1: 法人, 2: 個人 |
+| `base_point` | number | ⭐️ VDR必須, gte=0 | 基本ポイント数 |
+| `belong_rate` | number | ⭐️ VDR必須, gte=0 | 所属割増率 |
+| `max_works` | number | ⭐️ VDR必須, gte=0 | 最大就労数 |
+| `flush_fee_rate` | number | ⭐️ VDR必須, gte=0 | 事務コスト分配率 |
+| `flush_days` | number | 🔷 法人必須, gte=0 | 現金分配サイクル日数 |
+| `rate` | number | 🔷 法人必須, gte=0 | 割増ポイント率 |
 "#;
 #[utoipa::path(
     tag = TAG,
@@ -294,17 +315,17 @@ const UPDATE_DESC: &str = r#"
 | --- | --- | --- | --- |
 | `usr_id` | number | required, gte=1 | ユーザーID |
 | `name` | string | max=50 | ユーザー名 |
-| `email` | string | email, half, max=50 | メールアドレス |
+| `email` | string | email, max=50 | メールアドレス |
 | `password` | string | password | パスワード |
 | `bgn_at` | string | datetime | 開始日時 |
 | `end_at` | string | datetime | 終了日時 |
-| `type` | number | oneof=1 2 | 1: 法人, 2: 個人 |
-| `base_point` | number | gte=0 | 基本ポイント数 |
-| `belong_rate` | number | gte=0 | 所属割増率 |
-| `max_works` | number | gte=0 | 最大就労数 |
-| `flush_days` | number | gte=0 | 現金分配サイクル日数 |
-| `rate` | number | gte=0 | 割増ポイント率 |
-| `flush_fee_rate` | number | gte=0 | 事務コスト分配率 |
+| `type` | number | 🔴 APX/VDRでは入れないこと(omitempty), oneof=1 2 | 1: 法人, 2: 個人 |
+| `base_point` | number | ⭐️ VDR必須, gte=0 | 基本ポイント数 |
+| `belong_rate` | number | ⭐️ VDR必須, gte=0 | 所属割増率 |
+| `max_works` | number | ⭐️ VDR必須, gte=0 | 最大就労数 |
+| `flush_fee_rate` | number | ⭐️ VDR必須, gte=0 | 事務コスト分配率 |
+| `flush_days` | number | 🔷 法人必須, gte=0 | 現金分配サイクル日数 |
+| `rate` | number | 🔷 法人必須, gte=0 | 割増ポイント率 |
 "#;
 #[utoipa::path(
     tag = TAG,
